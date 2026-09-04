@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Семейный трекер квестов</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --text: #f8fafc;
+      --accent: #38bdf8;
+      --accent-hover: #0284c7;
+      --border: #334155;
+      --success: #22c55e;
+    }
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 20px;
+      display: flex;
+      justify-content: center;
+    }
+    .container {
+      width: 100%;
+      max-width: 600px;
+      background: var(--card-bg);
+      padding: 24px;
+      border-radius: 16px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--border);
+    }
+    h1 {
+      margin-top: 0;
+      text-align: center;
+      font-size: 1.6rem;
+      color: var(--accent);
+    }
+    .form-group {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+    input {
+      flex: 1;
+      padding: 12px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #0f172a;
+      color: #fff;
+      font-size: 1rem;
+      outline: none;
+    }
+    input:focus {
+      border-color: var(--accent);
+    }
+    button {
+      padding: 12px 18px;
+      background: var(--accent);
+      color: #0f172a;
+      border: none;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: var(--accent-hover);
+    }
+    ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    li {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #0f172a;
+      padding: 12px 16px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    li.completed span {
+      text-decoration: line-through;
+      opacity: 0.5;
+    }
+    .quest-content {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      cursor: pointer;
+      flex: 1;
+    }
+    .btn-delete {
+      background: transparent;
+      color: #ef4444;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 0.9rem;
+    }
+    .btn-delete:hover {
+      background: rgba(239, 68, 68, 0.1);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h1>Семейный трекер квестов</h1>
+
+    <div class="form-group">
+      <input type="text" id="quest-input" placeholder="Новое задание..." autocomplete="off">
+      <button id="add-btn">Добавить</button>
+    </div>
+
+    <ul id="quest-list"></ul>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-app.js";
+    import { 
+      getFirestore, 
+      collection, 
+      addDoc, 
+      onSnapshot, 
+      deleteDoc, 
+      doc, 
+      updateDoc, 
+      serverTimestamp,
+      query,
+      orderBy 
+    } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyAwSrRgFfxQjMhT4hksw3KOBXU2kuucaTQ",
+      authDomain: "kvesty-family.firebaseapp.com",
+      projectId: "kvesty-family",
+      storageBucket: "kvesty-family.firebasestorage.app",
+      messagingSenderId: "270505676856",
+      appId: "1:270505676856:web:5dc4d8ce89b8e9110096cd"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const questsCol = collection(db, "quests");
+
+    const questInput = document.getElementById("quest-input");
+    const addBtn = document.getElementById("add-btn");
+    const questList = document.getElementById("quest-list");
+
+    async function addQuest() {
+      const text = questInput.value.trim();
+      if (!text) return;
+
+      questInput.value = "";
+      await addDoc(questsCol, {
+        title: text,
+        completed: false,
+        createdAt: serverTimestamp()
+      });
+    }
+
+    addBtn.
