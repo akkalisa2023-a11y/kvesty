@@ -334,12 +334,13 @@
         if (amount <= 0 || amount > kid.points) return;
         const today = todayStr();
         if (kid.dailyMinutes.date !== today) kid.dailyMinutes = { date: today, minutes: 0 };
-        kid.dailyMinutes.minutes += amount;
+        const minutesEarned = amount * 3;
+        kid.dailyMinutes.minutes += minutesEarned;
         kid.points -= amount;
-        kid.history.unshift({ ts: Date.now(), label: `Обмен на экранное время`, delta: -amount, type: "redeem-screen" });
+        kid.history.unshift({ ts: Date.now(), label: `Экранное время (+${minutesEarned} мин)`, delta: -amount, type: "redeem-screen" });
         kid.history = kid.history.slice(0, 40);
         persist(next);
-        showToast(`+${amount} мин экранного времени`);
+        showToast(`+${minutesEarned} мин экранного времени (-${amount} б.)`);
       };
 
       const redeemCash = (kidKey, amount) => {
@@ -904,9 +905,9 @@
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                   <Icon name="screen" size={18} color={violet} />
                   <span style={{ fontWeight: 600, fontSize: 14 }}>Экранное время</span>
-                  <span style={{ fontSize: 12, color: muted, marginLeft: "auto" }}>1 балл = 1 мин</span>
+                  <span style={{ fontSize: 12, color: muted, marginLeft: "auto" }}>1 балл = 3 мин</span>
                 </div>
-                <RedeemRow max={kid.points} onRedeem={(n) => redeemScreen(kidKey, n)} accent={violet} unit="мин" />
+                <RedeemRow max={kid.points} onRedeem={(n) => redeemScreen(kidKey, n)} accent={violet} unit="б." presets={[10, 20, 30, 60]} />
               </div>
 
               <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: 14, padding: "1rem", marginBottom: 12 }}>
@@ -962,9 +963,9 @@
       );
     }
 
-    function RedeemRow({ max, onRedeem, accent, unit, compact }) {
+    function RedeemRow({ max, onRedeem, accent, unit, compact, presets: customPresets }) {
       const [val, setVal] = useState("");
-      const presets = compact ? [] : [15, 30, 60].filter((p) => p <= max);
+      const presets = compact ? [] : (customPresets || [15, 30, 60]).filter((p) => p <= max);
       return (
         <div>
           {presets.length > 0 && (
