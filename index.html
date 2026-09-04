@@ -3,139 +3,27 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Семейный трекер квестов</title>
+  <title>Квесты — Семейный трекер</title>
+
+  <!-- React & Babel для автономной работы в любом браузере -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
   <style>
-    :root {
-      --bg: #0f172a;
-      --card-bg: #1e293b;
-      --text: #f8fafc;
-      --accent: #38bdf8;
-      --accent-hover: #0284c7;
-      --border: #334155;
-      --success: #22c55e;
-    }
-    body {
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background-color: var(--bg);
-      color: var(--text);
-      margin: 0;
-      padding: 20px;
-      display: flex;
-      justify-content: center;
-    }
-    .container {
-      width: 100%;
-      max-width: 600px;
-      background: var(--card-bg);
-      padding: 24px;
-      border-radius: 16px;
-      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
-      border: 1px solid var(--border);
-    }
-    h1 {
-      margin-top: 0;
-      text-align: center;
-      font-size: 1.6rem;
-      color: var(--accent);
-    }
-    .form-group {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 20px;
-    }
-    input {
-      flex: 1;
-      padding: 12px 14px;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      background: #0f172a;
-      color: #fff;
-      font-size: 1rem;
-      outline: none;
-    }
-    input:focus {
-      border-color: var(--accent);
-    }
-    button {
-      padding: 12px 18px;
-      background: var(--accent);
-      color: #0f172a;
-      border: none;
-      border-radius: 8px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-    button:hover {
-      background: var(--accent-hover);
-    }
-    ul {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-    li {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      background: #0f172a;
-      padding: 12px 16px;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-    }
-    li.completed span {
-      text-decoration: line-through;
-      opacity: 0.5;
-    }
-    .quest-content {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      cursor: pointer;
-      flex: 1;
-    }
-    .btn-delete {
-      background: transparent;
-      color: #ef4444;
-      padding: 6px 10px;
-      border-radius: 6px;
-      font-size: 0.9rem;
-    }
-    .btn-delete:hover {
-      background: rgba(239, 68, 68, 0.1);
-    }
+    @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600&family=Inter:wght@400;500;600&display=swap');
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 0; background-color: #171B34; font-family: 'Inter', -apple-system, sans-serif; }
+    input[type=number]::-webkit-inner-spin-button { opacity: 1; }
   </style>
 </head>
 <body>
+  <div id="root"></div>
 
-  <div class="container">
-    <h1>Семейный трекер квестов</h1>
-
-    <div class="form-group">
-      <input type="text" id="quest-input" placeholder="Новое задание..." autocomplete="off">
-      <button id="add-btn">Добавить</button>
-    </div>
-
-    <ul id="quest-list"></ul>
-  </div>
-
+  <!-- Подключение Firebase SDK -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-app.js";
-    import { 
-      getFirestore, 
-      collection, 
-      addDoc, 
-      onSnapshot, 
-      deleteDoc, 
-      doc, 
-      updateDoc, 
-      serverTimestamp,
-      query,
-      orderBy 
-    } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore.js";
+    import { getFirestore, doc, setDoc, onSnapshot, getDoc } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyAwSrRgFfxQjMhT4hksw3KOBXU2kuucaTQ",
@@ -148,22 +36,966 @@
 
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
-    const questsCol = collection(db, "quests");
 
-    const questInput = document.getElementById("quest-input");
-    const addBtn = document.getElementById("add-btn");
-    const questList = document.getElementById("quest-list");
+    // Мост для сохранения состояния в общую базу Firestore и на локальное устройство
+    window.familyStorage = {
+      async getShared(key) {
+        try {
+          const snap = await getDoc(doc(db, "app_state", key));
+          if (snap.exists()) return snap.data().value;
+        } catch (e) {
+          console.error("Fetch error:", e);
+        }
+        return null;
+      },
+      async setShared(key, value) {
+        try {
+          await setDoc(doc(db, "app_state", key), { value });
+          return true;
+        } catch (e) {
+          console.error("Save error:", e);
+          return false;
+        }
+      },
+      subscribeShared(key, callback) {
+        return onSnapshot(doc(db, "app_state", key), (snap) => {
+          if (snap.exists()) {
+            callback(snap.data().value);
+          }
+        });
+      },
+      getLocal(key) {
+        return localStorage.getItem(key);
+      },
+      setLocal(key, value) {
+        localStorage.setItem(key, value);
+      }
+    };
 
-    async function addQuest() {
-      const text = questInput.value.trim();
-      if (!text) return;
+    window.dispatchEvent(new Event("family-storage-ready"));
+  </script>
 
-      questInput.value = "";
-      await addDoc(questsCol, {
-        title: text,
-        completed: false,
-        createdAt: serverTimestamp()
-      });
+  <!-- Приложение на React -->
+  <script type="text/babel">
+    const { useState, useEffect, useCallback, useRef } = React;
+
+    const STORAGE_KEY = "family-quest-state-v1";
+    const ROLE_KEY = "family-quest-role-v1";
+    const PIN_KEY = "family-quest-pin-v1";
+    const AVATAR_KEY = "family-quest-avatar-v1";
+
+    const PARENT_EMOJIS = ["👨", "👩", "🧔", "👱‍♀️", "🦸‍♂️", "🦸‍♀️", "🧙‍♂️", "🧙‍♀️", "🤴", "👸", "🐻", "🐻‍❄️", "🦁", "🦊", "🌞", "🌙"];
+    const KID_EMOJIS = ["🚀", "🦖", "🐉", "⚽", "🎮", "🎨", "🦸", "🐱", "🐶", "⭐", "🎵", "📚", "🏀", "🛹", "🦋", "🌈"];
+
+    const TASKS = [
+      { id: "hw", label: "Домашка сделана", points: 30, required: true },
+      { id: "study", label: "Доп. занятие / чтение", points: 15 },
+      { id: "chores", label: "Дела по дому", points: 15 },
+      { id: "sport", label: "Спорт / тренировка", points: 20 },
+      { id: "behavior", label: "Хорошее поведение", points: 15 },
+      { id: "extra", label: "Помощь сверх нормы", points: 10 },
+    ];
+
+    const PENALTIES = [
+      { id: "grade", label: "Плохая оценка", points: -20 },
+      { id: "missed", label: "Не сделано обязательное", points: -15 },
+      { id: "note", label: "Замечание учителя", points: -25 },
+      { id: "conflict", label: "Конфликт / грубость", points: -20 },
+    ];
+
+    function defaultKid(name, age) {
+      return {
+        name,
+        age,
+        avatar: null,
+        points: 0,
+        dailyMinutes: { date: "", minutes: 0 },
+        pendingPayout: 0,
+        totalCashRedeemed: 0,
+        bonusMinutes: 0,
+        goals: [],
+        history: [],
+      };
     }
 
-    addBtn.
+    function defaultState() {
+      return {
+        kids: {
+          k1: defaultKid("Старший", 13),
+          k2: defaultKid("Младший", 10),
+        },
+      };
+    }
+
+    function todayStr() {
+      return new Date().toISOString().slice(0, 10);
+    }
+
+    function payoutLabel() {
+      const now = new Date();
+      const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      const monthName = next.toLocaleDateString("ru-RU", { month: "long" });
+      return `10–15 ${monthName}`;
+    }
+
+    function fmtTime(iso) {
+      const d = new Date(iso);
+      return d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" }) + ", " +
+        d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+    }
+
+    function Icon({ name, size = 18, color = "currentColor" }) {
+      const paths = {
+        screen: <><rect x="3" y="4" width="18" height="12" rx="1.5" stroke={color} strokeWidth="1.6" fill="none" /><path d="M8 20h8M12 16v4" stroke={color} strokeWidth="1.6" strokeLinecap="round" /></>,
+        money: <><rect x="2.5" y="6" width="19" height="12" rx="2" stroke={color} strokeWidth="1.6" fill="none" /><circle cx="12" cy="12" r="3" stroke={color} strokeWidth="1.6" fill="none" /></>,
+        target: <><circle cx="12" cy="12" r="8.5" stroke={color} strokeWidth="1.6" fill="none" /><circle cx="12" cy="12" r="4.5" stroke={color} strokeWidth="1.6" fill="none" /><circle cx="12" cy="12" r="1.3" fill={color} /></>,
+        star: <path d="M12 3l2.6 5.8L21 9.6l-4.6 4.2 1.2 6.2L12 17l-5.6 3 1.2-6.2L3 9.6l6.4-.8L12 3z" fill={color} />,
+        warn: <><path d="M12 3.5l9.5 16.5H2.5L12 3.5z" stroke={color} strokeWidth="1.6" strokeLinejoin="round" fill="none" /><path d="M12 10v4" stroke={color} strokeWidth="1.8" strokeLinecap="round" /><circle cx="12" cy="16.7" r="0.9" fill={color} /></>,
+        plus: <path d="M12 5v14M5 12h14" stroke={color} strokeWidth="2" strokeLinecap="round" />,
+        lock: <><rect x="5" y="10.5" width="14" height="9.5" rx="2" stroke={color} strokeWidth="1.6" fill="none" /><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" stroke={color} strokeWidth="1.6" fill="none" /><circle cx="12" cy="15" r="1.4" fill={color} /></>,
+      };
+      return <svg width={size} height={size} viewBox="0 0 24 24">{paths[name]}</svg>;
+    }
+
+    const sans = "'Inter', -apple-system, sans-serif";
+    const display = "'Fredoka', 'Inter', sans-serif";
+    const bg = "#171B34";
+    const surface = "#232952";
+    const surfaceAlt = "#2C3468";
+    const border = "rgba(255,255,255,0.08)";
+    const text = "#F4F5FB";
+    const muted = "#9AA1C7";
+    const gold = "#F0B429";
+    const teal = "#45D9C5";
+    const violet = "#B18CFF";
+    const coral = "#FF6B6B";
+
+    function FamilyQuest() {
+      const [state, setState] = useState(null);
+      const [role, setRole] = useState(null);
+      const [pins, setPins] = useState({});
+      const [myAvatar, setMyAvatarState] = useState(null);
+      const [loaded, setLoaded] = useState(false);
+      const [activeKid, setActiveKid] = useState("k1");
+      const [tab, setTab] = useState("earn");
+      const [customAmount, setCustomAmount] = useState("");
+      const [customLabel, setCustomLabel] = useState("");
+      const [noteText, setNoteText] = useState("");
+      const [goalName, setGoalName] = useState("");
+      const [goalTarget, setGoalTarget] = useState("");
+      const [editingName, setEditingName] = useState(null);
+      const [toast, setToast] = useState("");
+      const [saveError, setSaveError] = useState(false);
+
+      useEffect(() => {
+        const init = async () => {
+          if (!window.familyStorage) return;
+
+          const loadedRole = window.familyStorage.getLocal(ROLE_KEY);
+          const loadedAvatar = window.familyStorage.getLocal(AVATAR_KEY);
+          if (loadedRole) setRole(loadedRole);
+          if (loadedAvatar) setMyAvatarState(loadedAvatar);
+
+          const rawState = await window.familyStorage.getShared(STORAGE_KEY);
+          if (rawState) {
+            try { setState(JSON.parse(rawState)); } catch(e) { setState(defaultState()); }
+          } else {
+            setState(defaultState());
+          }
+
+          const rawPins = await window.familyStorage.getShared(PIN_KEY);
+          if (rawPins) {
+            try { setPins(JSON.parse(rawPins)); } catch(e) {}
+          }
+
+          setLoaded(true);
+
+          window.familyStorage.subscribeShared(STORAGE_KEY, (val) => {
+            if (val) {
+              try { setState(JSON.parse(val)); } catch(e) {}
+            }
+          });
+
+          window.familyStorage.subscribeShared(PIN_KEY, (val) => {
+            if (val) {
+              try { setPins(JSON.parse(val)); } catch(e) {}
+            }
+          });
+        };
+
+        if (window.familyStorage) {
+          init();
+        } else {
+          window.addEventListener("family-storage-ready", init, { once: true });
+        }
+      }, []);
+
+      const persist = useCallback(async (next) => {
+        setState(next);
+        const ok = await window.familyStorage.setShared(STORAGE_KEY, JSON.stringify(next));
+        setSaveError(!ok);
+      }, []);
+
+      const chooseRole = (r) => {
+        setRole(r);
+        window.familyStorage.setLocal(ROLE_KEY, r);
+      };
+
+      const savePins = async (nextPins) => {
+        setPins(nextPins);
+        await window.familyStorage.setShared(PIN_KEY, JSON.stringify(nextPins));
+      };
+
+      const unlockRole = (roleKey, pin) => {
+        if (!pins[roleKey]) {
+          savePins({ ...pins, [roleKey]: pin });
+          chooseRole(roleKey);
+          return true;
+        }
+        if (pin === pins[roleKey]) {
+          chooseRole(roleKey);
+          return true;
+        }
+        return false;
+      };
+
+      const resetPin = (roleKey) => {
+        const next = { ...pins };
+        delete next[roleKey];
+        savePins(next);
+        showToast("PIN сброшен — при следующем входе можно задать новый");
+      };
+
+      const setMyAvatar = (emoji) => {
+        setMyAvatarState(emoji);
+        window.familyStorage.setLocal(AVATAR_KEY, emoji);
+      };
+
+      const setKidAvatar = (kidKey, emoji) => {
+        const next = structuredClone(state);
+        next.kids[kidKey].avatar = emoji;
+        persist(next);
+      };
+
+      const showToast = (msg) => {
+        setToast(msg);
+        setTimeout(() => setToast(""), 2200);
+      };
+
+      if (!loaded || !state) {
+        return <div style={{ padding: "3rem", textAlign: "center", color: "#9AA1C7", fontFamily: sans }}>Синхронизация с базой…</div>;
+      }
+
+      if (!role) {
+        return <RoleScreen state={state} pins={pins} onUnlockRole={unlockRole} />;
+      }
+
+      const kids = state.kids;
+      const needsAvatar = role === "parent" ? !myAvatar : !kids[role]?.avatar;
+      if (needsAvatar) {
+        return (
+          <AvatarPicker
+            forParent={role === "parent"}
+            onSelect={(emoji) => (role === "parent" ? setMyAvatar(emoji) : setKidAvatar(role, emoji))}
+          />
+        );
+      }
+
+      const applyDelta = (kidKey, delta, label, type) => {
+        const next = structuredClone(state);
+        const kid = next.kids[kidKey];
+        kid.points += delta;
+        kid.history.unshift({ ts: Date.now(), label, delta, type });
+        kid.history = kid.history.slice(0, 40);
+        persist(next);
+        showToast(`${kid.name}: ${delta > 0 ? "+" : ""}${delta} баллов`);
+      };
+
+      const applyWeeklyBonus = (kidKey) => {
+        const next = structuredClone(state);
+        const kid = next.kids[kidKey];
+        kid.bonusMinutes += 60;
+        kid.history.unshift({ ts: Date.now(), label: "Идеальная неделя — бонус", delta: 0, type: "bonus", minutes: 60 });
+        kid.history = kid.history.slice(0, 40);
+        persist(next);
+        showToast(`${kid.name}: +60 мин бонус на выходные`);
+      };
+
+      const renameKid = (kidKey, name) => {
+        const next = structuredClone(state);
+        next.kids[kidKey].name = name || next.kids[kidKey].name;
+        persist(next);
+        setEditingName(null);
+      };
+
+      const redeemScreen = (kidKey, amount) => {
+        const next = structuredClone(state);
+        const kid = next.kids[kidKey];
+        if (amount <= 0 || amount > kid.points) return;
+        const today = todayStr();
+        if (kid.dailyMinutes.date !== today) kid.dailyMinutes = { date: today, minutes: 0 };
+        kid.dailyMinutes.minutes += amount;
+        kid.points -= amount;
+        kid.history.unshift({ ts: Date.now(), label: `Обмен на экранное время`, delta: -amount, type: "redeem-screen" });
+        kid.history = kid.history.slice(0, 40);
+        persist(next);
+        showToast(`+${amount} мин экранного времени`);
+      };
+
+      const redeemCash = (kidKey, amount) => {
+        const next = structuredClone(state);
+        const kid = next.kids[kidKey];
+        if (amount <= 0 || amount > kid.points) return;
+        kid.pendingPayout += amount;
+        kid.totalCashRedeemed = (kid.totalCashRedeemed || 0) + amount;
+        kid.points -= amount;
+        kid.history.unshift({ ts: Date.now(), label: "Обмен на деньги (к выплате)", delta: -amount, type: "redeem-cash" });
+        kid.history = kid.history.slice(0, 40);
+        persist(next);
+        showToast(`+${amount} ₽ к выплате`);
+      };
+
+      const markPaid = (kidKey) => {
+        const next = structuredClone(state);
+        const kid = next.kids[kidKey];
+        if (kid.pendingPayout <= 0) return;
+        const amount = kid.pendingPayout;
+        kid.pendingPayout = 0;
+        kid.history.unshift({ ts: Date.now(), label: `Выплачено ${amount} ₽`, delta: 0, type: "paid" });
+        kid.history = kid.history.slice(0, 40);
+        persist(next);
+        showToast(`${kid.name}: выплата отмечена`);
+      };
+
+      const deleteGoal = (kidKey, goalId) => {
+        const next = structuredClone(state);
+        const kid = next.kids[kidKey];
+        const goal = kid.goals.find((g) => g.id === goalId);
+        kid.goals = kid.goals.filter((g) => g.id !== goalId);
+        if (goal) {
+          kid.history.unshift({ ts: Date.now(), label: `Цель «${goal.name}» удалена`, delta: 0, type: "goal-deleted" });
+          kid.history = kid.history.slice(0, 40);
+        }
+        persist(next);
+      };
+
+      const createGoal = (kidKey, name, target) => {
+        const next = structuredClone(state);
+        const kid = next.kids[kidKey];
+        if (!name || target <= 0) return;
+        kid.goals.push({ id: Date.now().toString(), name, target, saved: 0 });
+        persist(next);
+        setGoalName("");
+        setGoalTarget("");
+      };
+
+      const fundGoal = (kidKey, goalId, amount) => {
+        const next = structuredClone(state);
+        const kid = next.kids[kidKey];
+        if (amount <= 0 || amount > kid.points) return;
+        const goal = kid.goals.find((g) => g.id === goalId);
+        if (!goal) return;
+        goal.saved += amount;
+        kid.points -= amount;
+        kid.history.unshift({ ts: Date.now(), label: `В копилку «${goal.name}»`, delta: -amount, type: "redeem-goal" });
+        kid.history = kid.history.slice(0, 40);
+        persist(next);
+        showToast(`+${amount} ₽ в «${goal.name}»`);
+      };
+
+      const useBonusMinutes = (kidKey) => {
+        const next = structuredClone(state);
+        next.kids[kidKey].bonusMinutes = 0;
+        persist(next);
+      };
+
+      const switchRole = () => {
+        setRole(null);
+        window.familyStorage.setLocal(ROLE_KEY, "");
+      };
+
+      return (
+        <div style={{ minHeight: "100vh", background: bg, fontFamily: sans, color: text, paddingBottom: "3rem" }}>
+          <TopBar
+            role={role}
+            onSwitch={switchRole}
+            avatar={role === "parent" ? myAvatar : kids[role]?.avatar}
+            onChangeAvatar={() => (role === "parent" ? setMyAvatarState(null) : setKidAvatar(role, null))}
+          />
+          {saveError && (
+            <div style={{ maxWidth: 720, margin: "0 auto", padding: "0 1.25rem" }}>
+              <div style={{ background: "rgba(255,107,107,0.12)", border: `1px solid ${coral}`, color: coral, borderRadius: 10, padding: "0.6rem 0.9rem", fontSize: 13, marginTop: 12 }}>
+                Не удалось сохранить изменения в базу. Проверьте интернет.
+              </div>
+            </div>
+          )}
+          {role === "parent" ? (
+            <ParentView
+              kids={kids}
+              activeKid={activeKid}
+              setActiveKid={setActiveKid}
+              tab={tab}
+              setTab={setTab}
+              applyDelta={applyDelta}
+              applyWeeklyBonus={applyWeeklyBonus}
+              markPaid={markPaid}
+              pins={pins}
+              resetPin={resetPin}
+              customAmount={customAmount}
+              setCustomAmount={setCustomAmount}
+              customLabel={customLabel}
+              setCustomLabel={setCustomLabel}
+              noteText={noteText}
+              setNoteText={setNoteText}
+              editingName={editingName}
+              setEditingName={setEditingName}
+              renameKid={renameKid}
+            />
+          ) : (
+            <KidView
+              kidKey={role}
+              kid={kids[role]}
+              redeemScreen={redeemScreen}
+              redeemCash={redeemCash}
+              goalName={goalName}
+              setGoalName={setGoalName}
+              goalTarget={goalTarget}
+              setGoalTarget={setGoalTarget}
+              createGoal={createGoal}
+              fundGoal={fundGoal}
+              deleteGoal={deleteGoal}
+              useBonusMinutes={useBonusMinutes}
+            />
+          )}
+          {toast && (
+            <div style={{
+              position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
+              background: surfaceAlt, color: text, padding: "0.7rem 1.2rem", borderRadius: 12,
+              fontSize: 14, fontWeight: 500, boxShadow: "0 8px 24px rgba(0,0,0,0.35)", border: `1px solid ${border}`,
+              zIndex: 50,
+            }}>
+              {toast}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function TopBar({ role, onSwitch, avatar, onChangeAvatar }) {
+      return (
+        <div style={{ maxWidth: 720, margin: "0 auto", padding: "1.5rem 1.25rem 0.5rem", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 9, background: gold, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Icon name="star" size={17} color="#412402" />
+            </div>
+            <span style={{ fontFamily: display, fontWeight: 600, fontSize: 20 }}>Квесты</span>
+            {avatar && (
+              <button onClick={onChangeAvatar} title="Сменить значок" style={{
+                background: surface, border: `1px solid ${border}`, borderRadius: 999, width: 30, height: 30,
+                fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", marginLeft: 2,
+              }}>{avatar}</button>
+            )}
+          </div>
+          <button onClick={onSwitch} style={{
+            background: "transparent", border: `1px solid ${border}`, color: muted, borderRadius: 8,
+            padding: "0.4rem 0.8rem", fontSize: 13, cursor: "pointer", fontFamily: sans,
+          }}>Сменить профиль</button>
+        </div>
+      );
+    }
+
+    function RoleScreen({ state, pins, onUnlockRole }) {
+      const [pendingRole, setPendingRole] = useState(null);
+      const roleLabel = pendingRole === "parent" ? "Родитель" : pendingRole ? state.kids[pendingRole]?.name : "";
+
+      return (
+        <div style={{ minHeight: "100vh", background: bg, fontFamily: sans, color: text, display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem" }}>
+          <div style={{ maxWidth: 420, width: "100%", textAlign: "center" }}>
+            <div style={{ width: 56, height: 56, borderRadius: 16, background: gold, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1.25rem" }}>
+              <Icon name="star" size={30} color="#412402" />
+            </div>
+            <h1 style={{ fontFamily: display, fontWeight: 600, fontSize: 26, margin: "0 0 0.4rem" }}>Квесты</h1>
+            <p style={{ color: muted, fontSize: 14, margin: "0 0 2rem" }}>{pendingRole ? `PIN — ${roleLabel}` : "Выберите, кто заходит"}</p>
+            {pendingRole ? (
+              <PinGate
+                hasPin={!!pins[pendingRole]}
+                onSubmit={(pin) => onUnlockRole(pendingRole, pin)}
+                onCancel={() => setPendingRole(null)}
+              />
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <button onClick={() => setPendingRole("parent")} style={roleBtnStyle(violet)}>
+                  <span style={{ display: "flex", alignItems: "center", gap: 8 }}><Icon name="lock" size={16} color={violet} />Родитель</span>
+                  <span style={{ color: muted, fontSize: 13, fontWeight: 400 }}>начислять и списывать</span>
+                </button>
+                {Object.entries(state.kids).map(([key, kid]) => (
+                  <button key={key} onClick={() => setPendingRole(key)} style={roleBtnStyle(gold)}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      {kid.avatar ? <span style={{ fontSize: 18 }}>{kid.avatar}</span> : <Icon name="lock" size={14} color={gold} />}
+                      {kid.name}
+                    </span>
+                    <span style={{ color: muted, fontSize: 13, fontWeight: 400 }}>{kid.points} баллов</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    function AvatarPicker({ forParent, onSelect }) {
+      const options = forParent ? PARENT_EMOJIS : KID_EMOJIS;
+      return (
+        <div style={{ minHeight: "100vh", background: bg, fontFamily: sans, color: text, display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem" }}>
+          <div style={{ maxWidth: 440, width: "100%", textAlign: "center" }}>
+            <h1 style={{ fontFamily: display, fontWeight: 600, fontSize: 22, margin: "0 0 0.4rem" }}>Выбери свой значок</h1>
+            <p style={{ color: muted, fontSize: 13, margin: "0 0 1.5rem" }}>
+              {forParent ? "У вас общий вход — выберите разные значки, чтобы отличаться" : "Он будет виден остальным в семье"}
+            </p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+              {options.map((emoji) => (
+                <button key={emoji} onClick={() => onSelect(emoji)} style={{
+                  background: surface, border: `1px solid ${border}`, borderRadius: 14, padding: "0.9rem 0",
+                  fontSize: 28, cursor: "pointer", lineHeight: 1,
+                }}>{emoji}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function PinGate({ hasPin, onSubmit, onCancel }) {
+      const [pin, setPin] = useState("");
+      const [error, setError] = useState(false);
+
+      const submit = () => {
+        if (pin.length < 4) return;
+        const ok = onSubmit(pin);
+        if (!ok) {
+          setError(true);
+          setPin("");
+        }
+      };
+
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {!hasPin && (
+            <div style={{ fontSize: 12, color: muted, marginBottom: 4 }}>PIN ещё не задан — придумайте любой, от 4 цифр, он и станет вашим PIN.</div>
+          )}
+          <input
+            type="password"
+            inputMode="numeric"
+            autoFocus
+            placeholder="PIN (мин. 4 цифры)"
+            value={pin}
+            onChange={(e) => { setPin(e.target.value.replace(/\D/g, "")); setError(false); }}
+            onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+            style={inputStyle({ textAlign: "center", fontSize: 18, letterSpacing: 4 })}
+          />
+          {error && <div style={{ color: coral, fontSize: 13 }}>Неверный PIN</div>}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={onCancel} style={{ ...primaryBtnStyle(border), background: "transparent", border: `1px solid ${border}`, color: muted, flex: 1 }}>Назад</button>
+            <button onClick={submit} style={{ ...primaryBtnStyle(violet), flex: 1 }}>Войти</button>
+          </div>
+        </div>
+      );
+    }
+
+    function roleBtnStyle(accent) {
+      return {
+        background: surface, border: `1px solid ${border}`, borderLeft: `4px solid ${accent}`,
+        borderRadius: 12, padding: "1rem 1.25rem", color: text, fontFamily: sans, fontWeight: 600,
+        fontSize: 16, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center",
+        textAlign: "left",
+      };
+    }
+
+    function KidCard({ kidKey, kid, active, onClick }) {
+      const debt = kid.points < 0;
+      return (
+        <button onClick={onClick} style={{
+          flex: 1, background: active ? surfaceAlt : surface, border: `1px solid ${active ? gold : border}`,
+          borderRadius: 14, padding: "1rem", cursor: "pointer", textAlign: "left", fontFamily: sans,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <span style={{ fontWeight: 600, fontSize: 15, color: text, display: "flex", alignItems: "center", gap: 6 }}>
+              {kid.avatar && <span style={{ fontSize: 17 }}>{kid.avatar}</span>}
+              {kid.name}
+            </span>
+            <span style={{ fontSize: 12, color: muted }}>{kid.age} лет</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+            <span style={{ fontFamily: display, fontWeight: 600, fontSize: 28, color: debt ? coral : gold }}>{kid.points}</span>
+            <span style={{ fontSize: 13, color: muted }}>баллов</span>
+          </div>
+          {kid.pendingPayout > 0 && (
+            <div style={{ marginTop: 6, fontSize: 12, color: teal }}>{kid.pendingPayout} ₽ к выплате</div>
+          )}
+          {kid.bonusMinutes > 0 && (
+            <div style={{ marginTop: 4, fontSize: 12, color: violet }}>+{kid.bonusMinutes} мин бонус</div>
+          )}
+        </button>
+      );
+    }
+
+    function ParentView({ kids, activeKid, setActiveKid, tab, setTab, applyDelta, applyWeeklyBonus, markPaid, pins, resetPin, customAmount, setCustomAmount, customLabel, setCustomLabel, noteText, setNoteText, editingName, setEditingName, renameKid }) {
+      const kid = kids[activeKid] || kids[Object.keys(kids)[0]];
+
+      return (
+        <div style={{ maxWidth: 720, margin: "0 auto", padding: "1.25rem" }}>
+          <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+            {Object.entries(kids).map(([key, k]) => (
+              <KidCard key={key} kidKey={key} kid={k} active={activeKid === key} onClick={() => setActiveKid(key)} />
+            ))}
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+            {editingName === activeKid ? (
+              <input
+                autoFocus
+                defaultValue={kid.name}
+                onBlur={(e) => renameKid(activeKid, e.target.value.trim())}
+                onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
+                style={{ background: surface, border: `1px solid ${border}`, borderRadius: 8, padding: "0.4rem 0.6rem", color: text, fontFamily: sans, fontSize: 16, fontWeight: 600 }}
+              />
+            ) : (
+              <h2 onClick={() => setEditingName(activeKid)} style={{ fontFamily: display, fontWeight: 600, fontSize: 19, margin: 0, cursor: "pointer" }}>
+                {kid.name} <span style={{ fontSize: 12, color: muted, fontWeight: 400 }}>(изменить имя)</span>
+              </h2>
+            )}
+            <div style={{ display: "flex", gap: 6 }}>
+              <TabBtn active={tab === "earn"} onClick={() => setTab("earn")} label="Начислить" color={gold} />
+              <TabBtn active={tab === "penalty"} onClick={() => setTab("penalty")} label="Штраф" color={coral} />
+            </div>
+          </div>
+
+          <SpendSummary kid={kid} />
+
+          <input
+            placeholder="Комментарий (необязательно) — например, что именно случилось"
+            value={noteText}
+            onChange={(e) => setNoteText(e.target.value)}
+            style={inputStyle({ width: "100%", boxSizing: "border-box", marginBottom: 10 })}
+          />
+
+          {tab === "earn" ? (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px,1fr))", gap: 10, marginBottom: 16 }}>
+              {TASKS.map((t) => (
+                <ActionBtn key={t.id} label={t.label} points={t.points} accent={t.required ? violet : gold}
+                  onClick={() => { applyDelta(activeKid, t.points, noteText.trim() ? `${t.label} — ${noteText.trim()}` : t.label, "earn"); setNoteText(""); }} />
+              ))}
+            </div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px,1fr))", gap: 10, marginBottom: 16 }}>
+              {PENALTIES.map((t) => (
+                <ActionBtn key={t.id} label={t.label} points={t.points} accent={coral}
+                  onClick={() => { applyDelta(activeKid, t.points, noteText.trim() ? `${t.label} — ${noteText.trim()}` : t.label, "penalty"); setNoteText(""); }} />
+              ))}
+            </div>
+          )}
+
+          <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: 14, padding: "1rem", marginBottom: 16 }}>
+            <div style={{ fontSize: 13, color: muted, marginBottom: 10 }}>Другое количество баллов</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <input placeholder="За что" value={customLabel} onChange={(e) => setCustomLabel(e.target.value)}
+                style={inputStyle({ flex: "1 1 140px" })} />
+              <input placeholder="Баллы (+/-)" type="number" value={customAmount} onChange={(e) => setCustomAmount(e.target.value)}
+                style={inputStyle({ width: 110 })} />
+              <button
+                onClick={() => {
+                  const n = parseInt(customAmount, 10);
+                  if (!n || Number.isNaN(n)) return;
+                  applyDelta(activeKid, n, customLabel.trim() || "Другое", n > 0 ? "earn" : "penalty");
+                  setCustomAmount("");
+                  setCustomLabel("");
+                }}
+                style={primaryBtnStyle(gold)}
+              >Добавить</button>
+            </div>
+          </div>
+
+          {kid.pendingPayout > 0 && (
+            <div style={{ background: surface, border: `1px solid ${teal}`, borderRadius: 14, padding: "1rem", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 2 }}>К выплате: <span style={{ color: teal }}>{kid.pendingPayout} ₽</span></div>
+                <div style={{ fontSize: 12, color: muted }}>выплата {payoutLabel()}</div>
+              </div>
+              <button onClick={() => markPaid(activeKid)} style={primaryBtnStyle(teal)}>Отметить как выплачено</button>
+            </div>
+          )}
+
+          <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: 14, padding: "1rem", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 2 }}>Идеальная неделя (пн–пт)</div>
+              <div style={{ fontSize: 12, color: muted }}>Без штрафов всю неделю → +60 мин на выходные</div>
+            </div>
+            <button onClick={() => applyWeeklyBonus(activeKid)} style={primaryBtnStyle(violet)}>Начислить бонус</button>
+          </div>
+
+          <History history={kid.history} />
+
+          <div style={{ marginTop: 20, background: surface, border: `1px solid ${border}`, borderRadius: 14, padding: "1rem" }}>
+            <div style={{ fontSize: 13, color: muted, marginBottom: 10 }}>Забыли PIN? Сбросьте — при следующем входе можно задать новый</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button onClick={() => resetPin("parent")} style={{ ...primaryBtnStyle(border), background: "transparent", border: `1px solid ${border}`, color: muted }}>
+                Сбросить PIN родителя
+              </button>
+              {Object.entries(kids).map(([key, k]) => (
+                <button key={key} onClick={() => resetPin(key)} style={{ ...primaryBtnStyle(border), background: "transparent", border: `1px solid ${border}`, color: muted }}>
+                  Сбросить PIN — {k.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function SpendSummary({ kid }) {
+      const today = todayStr();
+      const screenToday = kid.dailyMinutes?.date === today ? kid.dailyMinutes.minutes : 0;
+      const cashTotal = kid.totalCashRedeemed || 0;
+      const hasGoalSavings = kid.goals && kid.goals.some((g) => g.saved > 0);
+
+      if (!screenToday && !cashTotal && !hasGoalSavings) return null;
+
+      return (
+        <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: 14, padding: "1rem", marginBottom: 16 }}>
+          <div style={{ fontSize: 13, color: muted, marginBottom: 10 }}>На что потрачено</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {screenToday > 0 && (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 14 }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 8 }}><Icon name="screen" size={16} color={violet} />Экранное время сегодня</span>
+                <b style={{ color: violet }}>{screenToday} мин</b>
+              </div>
+            )}
+            {cashTotal > 0 && (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 14 }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 8 }}><Icon name="money" size={16} color={teal} />Обменяно на деньги (всего)</span>
+                <b style={{ color: teal }}>{cashTotal} ₽</b>
+              </div>
+            )}
+            {kid.goals && kid.goals.filter((g) => g.saved > 0).map((g) => (
+              <div key={g.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 14 }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 8 }}><Icon name="target" size={16} color={gold} />В копилку «{g.name}»</span>
+                <b style={{ color: gold }}>{g.saved} / {g.target} ₽</b>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    function TabBtn({ active, onClick, label, color }) {
+      return (
+        <button onClick={onClick} style={{
+          background: active ? color + "22" : "transparent", border: `1px solid ${active ? color : border}`,
+          color: active ? color : muted, borderRadius: 8, padding: "0.35rem 0.7rem", fontSize: 13, fontWeight: 600,
+          cursor: "pointer", fontFamily: sans,
+        }}>{label}</button>
+      );
+    }
+
+    function ActionBtn({ label, points, accent, onClick }) {
+      return (
+        <button onClick={onClick} style={{
+          background: surface, border: `1px solid ${border}`, borderRadius: 12, padding: "0.8rem",
+          cursor: "pointer", textAlign: "left", fontFamily: sans, display: "flex", flexDirection: "column", gap: 6,
+        }}>
+          <span style={{ fontSize: 13, color: text, fontWeight: 500 }}>{label}</span>
+          <span style={{ fontFamily: display, fontWeight: 600, fontSize: 16, color: accent }}>
+            {points > 0 ? "+" : ""}{points}
+          </span>
+        </button>
+      );
+    }
+
+    function inputStyle(extra) {
+      return {
+        background: bg, border: `1px solid ${border}`, borderRadius: 8, padding: "0.5rem 0.7rem",
+        color: text, fontFamily: sans, fontSize: 14, ...extra,
+      };
+    }
+
+    function primaryBtnStyle(accent) {
+      return {
+        background: accent, border: "none", borderRadius: 8, padding: "0.5rem 1rem",
+        color: "#171B34", fontFamily: sans, fontSize: 14, fontWeight: 600, cursor: "pointer",
+      };
+    }
+
+    function History({ history }) {
+      if (!history || !history.length) return null;
+      return (
+        <div>
+          <div style={{ fontSize: 13, color: muted, marginBottom: 8 }}>История</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {history.slice(0, 12).map((h, i) => (
+              <div key={i} style={{
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                background: surface, border: `1px solid ${border}`, borderRadius: 10, padding: "0.55rem 0.8rem", fontSize: 13,
+              }}>
+                <div>
+                  <div style={{ color: text }}>{h.label}</div>
+                  <div style={{ color: muted, fontSize: 11, marginTop: 2 }}>{fmtTime(h.ts)}</div>
+                </div>
+                <span style={{ fontFamily: display, fontWeight: 600, color: h.delta > 0 ? gold : h.delta < 0 ? coral : violet }}>
+                  {h.delta !== 0 ? `${h.delta > 0 ? "+" : ""}${h.delta}` : h.minutes ? `+${h.minutes} мин` : ""}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    function KidView({ kidKey, kid, redeemScreen, redeemCash, goalName, setGoalName, goalTarget, setGoalTarget, createGoal, fundGoal, deleteGoal, useBonusMinutes }) {
+      if (!kid) return null;
+      const debt = kid.points < 0;
+      const canRedeem = kid.points > 0;
+      const today = todayStr();
+      const earnedToday = kid.dailyMinutes?.date === today ? kid.dailyMinutes.minutes : 0;
+
+      return (
+        <div style={{ maxWidth: 560, margin: "0 auto", padding: "1.25rem" }}>
+          <div style={{ textAlign: "center", padding: "1.5rem 0 1rem" }}>
+            <div style={{ fontSize: 14, color: muted, marginBottom: 4 }}>{kid.name}, у тебя</div>
+            <div style={{ fontFamily: display, fontWeight: 600, fontSize: 56, color: debt ? coral : gold, lineHeight: 1 }}>
+              {kid.points}
+            </div>
+            <div style={{ fontSize: 14, color: muted, marginTop: 4 }}>баллов</div>
+          </div>
+
+          {debt && (
+            <div style={{ background: "rgba(255,107,107,0.1)", border: `1px solid ${coral}`, borderRadius: 12, padding: "0.9rem 1rem", marginBottom: 16, display: "flex", gap: 10, alignItems: "flex-start" }}>
+              <Icon name="warn" size={20} color={coral} />
+              <div style={{ fontSize: 13, color: text }}>
+                У тебя долг {Math.abs(kid.points)} баллов. Меняться на что-то можно будет, когда заработаешь и закроешь долг.
+              </div>
+            </div>
+          )}
+
+          {kid.bonusMinutes > 0 && (
+            <div style={{ background: violet + "1a", border: `1px solid ${violet}`, borderRadius: 12, padding: "0.9rem 1rem", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontSize: 13, color: text }}>Бонус за идеальную неделю: <b style={{ color: violet }}>+{kid.bonusMinutes} мин</b> на выходные</div>
+              <button onClick={() => useBonusMinutes(kidKey)} style={primaryBtnStyle(violet)}>Использовал</button>
+            </div>
+          )}
+
+          {earnedToday > 0 && (
+            <div style={{ fontSize: 13, color: muted, marginBottom: 16, textAlign: "center" }}>
+              Сегодня уже переведено в экранное время: {earnedToday} мин
+            </div>
+          )}
+
+          {kid.pendingPayout > 0 && (
+            <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: 12, padding: "0.9rem 1rem", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontSize: 13, color: text }}>К выплате: <b style={{ color: teal }}>{kid.pendingPayout} ₽</b></div>
+              <div style={{ fontSize: 12, color: muted }}>выплата {payoutLabel()}</div>
+            </div>
+          )}
+
+          {canRedeem ? (
+            <>
+              <div style={{ fontSize: 13, color: muted, marginBottom: 10 }}>На что потратить баллы</div>
+              <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: 14, padding: "1rem", marginBottom: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                  <Icon name="screen" size={18} color={violet} />
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>Экранное время</span>
+                  <span style={{ fontSize: 12, color: muted, marginLeft: "auto" }}>1 балл = 1 мин</span>
+                </div>
+                <RedeemRow max={kid.points} onRedeem={(n) => redeemScreen(kidKey, n)} accent={violet} unit="мин" />
+              </div>
+
+              <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: 14, padding: "1rem", marginBottom: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                  <Icon name="money" size={18} color={teal} />
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>Деньги</span>
+                  <span style={{ fontSize: 12, color: muted, marginLeft: "auto" }}>1 балл = 1 ₽</span>
+                </div>
+                <RedeemRow max={kid.points} onRedeem={(n) => redeemCash(kidKey, n)} accent={teal} unit="₽" />
+              </div>
+
+              <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: 14, padding: "1rem", marginBottom: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                  <Icon name="target" size={18} color={gold} />
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>Копилка на цель</span>
+                </div>
+                {kid.goals && kid.goals.map((g) => (
+                  <div key={g.id} style={{ marginBottom: 12 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, marginBottom: 4 }}>
+                      <span>{g.name}</span>
+                      <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ color: muted }}>{g.saved} / {g.target} ₽</span>
+                        <button onClick={() => deleteGoal(kidKey, g.id)} title="Удалить цель" style={{
+                          background: "transparent", border: "none", color: muted, cursor: "pointer", fontSize: 15, lineHeight: 1, padding: 2,
+                        }}>×</button>
+                      </span>
+                    </div>
+                    <div style={{ height: 6, background: bg, borderRadius: 4, overflow: "hidden", marginBottom: 8 }}>
+                      <div style={{ height: "100%", width: `${Math.min(100, (g.saved / g.target) * 100)}%`, background: gold }} />
+                    </div>
+                    <RedeemRow max={kid.points} onRedeem={(n) => fundGoal(kidKey, g.id, n)} accent={gold} unit="₽" compact />
+                  </div>
+                ))}
+                <div style={{ display: "flex", gap: 8, marginTop: (kid.goals && kid.goals.length) ? 4 : 0, flexWrap: "wrap" }}>
+                  <input placeholder="Новая цель" value={goalName} onChange={(e) => setGoalName(e.target.value)} style={inputStyle({ flex: "1 1 120px" })} />
+                  <input placeholder="Сумма ₽" type="number" value={goalTarget} onChange={(e) => setGoalTarget(e.target.value)} style={inputStyle({ width: 100 })} />
+                  <button onClick={() => createGoal(kidKey, goalName.trim(), parseInt(goalTarget, 10))} style={primaryBtnStyle(gold)}>
+                    <Icon name="plus" size={14} color="#171B34" />
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : (
+            !debt && (
+              <div style={{ textAlign: "center", color: muted, fontSize: 13, padding: "1.5rem 0" }}>
+                Пока баллов нет — выполни задание, и родители начислят тебе баллы.
+              </div>
+            )
+          )}
+
+          <History history={kid.history} />
+        </div>
+      );
+    }
+
+    function RedeemRow({ max, onRedeem, accent, unit, compact }) {
+      const [val, setVal] = useState("");
+      const presets = compact ? [] : [15, 30, 60].filter((p) => p <= max);
+      return (
+        <div>
+          {presets.length > 0 && (
+            <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+              {presets.map((p) => (
+                <button key={p} onClick={() => onRedeem(p)} style={{
+                  background: bg, border: `1px solid ${border}`, borderRadius: 8, padding: "0.4rem 0.7rem",
+                  color: text, fontSize: 13, cursor: "pointer", fontFamily: sans,
+                }}>{p} {unit}</button>
+              ))}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8 }}>
+            <input type="number" placeholder={`До ${max}`} value={val} onChange={(e) => setVal(e.target.value)}
+              style={inputStyle({ flex: 1 })} />
+            <button
+              onClick={() => {
+                const n = parseInt(val, 10);
+                if (!n || n <= 0 || n > max) return;
+                onRedeem(n);
+                setVal("");
+              }}
+              style={primaryBtnStyle(accent)}
+            >Обменять</button>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<FamilyQuest />);
+  </script>
+</body>
+</html>
