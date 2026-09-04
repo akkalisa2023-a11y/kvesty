@@ -89,8 +89,8 @@
 
     const TASKS = [
       { id: "hw", label: "Домашка сделана", points: 30, required: true },
+      { id: "chores", label: "Дела по дому", points: 15, required: true },
       { id: "study", label: "Доп. занятие / чтение", points: 15 },
-      { id: "chores", label: "Дела по дому", points: 15 },
       { id: "sport", label: "Спорт / тренировка", points: 20 },
       { id: "behavior", label: "Хорошее поведение", points: 15 },
       { id: "extra", label: "Помощь сверх нормы", points: 10 },
@@ -110,6 +110,8 @@
         avatar: null,
         points: 0,
         dailyMinutes: { date: "", minutes: 0 },
+        tomorrowMinutes: { date: "", minutes: 0 },
+        dailyTasks: { date: "", completed: [] },
         pendingPayout: 0,
         totalCashRedeemed: 0,
         bonusMinutes: 0,
@@ -131,6 +133,20 @@
       return new Date().toISOString().slice(0, 10);
     }
 
+    function tomorrowStr() {
+      const d = new Date();
+      d.setDate(d.getDate() + 1);
+      return d.toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
+    }
+
+    function formatHM(totalMinutes) {
+      const h = Math.floor(totalMinutes / 60);
+      const m = totalMinutes % 60;
+      if (h > 0 && m > 0) return `${h} ч ${m} мин`;
+      if (h > 0) return `${h} ч`;
+      return `${m} мин`;
+    }
+
     function payoutLabel() {
       const now = new Date();
       const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
@@ -147,12 +163,15 @@
     function Icon({ name, size = 18, color = "currentColor" }) {
       const paths = {
         screen: <><rect x="3" y="4" width="18" height="12" rx="1.5" stroke={color} strokeWidth="1.6" fill="none" /><path d="M8 20h8M12 16v4" stroke={color} strokeWidth="1.6" strokeLinecap="round" /></>,
+        phone: <><rect x="6" y="2" width="12" height="20" rx="3" stroke={color} strokeWidth="1.6" fill="none" /><circle cx="12" cy="18" r="1" fill={color} /></>,
         money: <><rect x="2.5" y="6" width="19" height="12" rx="2" stroke={color} strokeWidth="1.6" fill="none" /><circle cx="12" cy="12" r="3" stroke={color} strokeWidth="1.6" fill="none" /></>,
         target: <><circle cx="12" cy="12" r="8.5" stroke={color} strokeWidth="1.6" fill="none" /><circle cx="12" cy="12" r="4.5" stroke={color} strokeWidth="1.6" fill="none" /><circle cx="12" cy="12" r="1.3" fill={color} /></>,
         star: <path d="M12 3l2.6 5.8L21 9.6l-4.6 4.2 1.2 6.2L12 17l-5.6 3 1.2-6.2L3 9.6l6.4-.8L12 3z" fill={color} />,
         warn: <><path d="M12 3.5l9.5 16.5H2.5L12 3.5z" stroke={color} strokeWidth="1.6" strokeLinejoin="round" fill="none" /><path d="M12 10v4" stroke={color} strokeWidth="1.8" strokeLinecap="round" /><circle cx="12" cy="16.7" r="0.9" fill={color} /></>,
+        check: <path d="M4 12.5l5 5L20 6" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />,
         plus: <path d="M12 5v14M5 12h14" stroke={color} strokeWidth="2" strokeLinecap="round" />,
         lock: <><rect x="5" y="10.5" width="14" height="9.5" rx="2" stroke={color} strokeWidth="1.6" fill="none" /><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" stroke={color} strokeWidth="1.6" fill="none" /><circle cx="12" cy="15" r="1.4" fill={color} /></>,
+        clock: <><circle cx="12" cy="12" r="9" stroke={color} strokeWidth="1.6" fill="none" /><polyline points="12 7 12 12 15 14" stroke={color} strokeWidth="1.6" strokeLinecap="round" /></>
       };
       return <svg width={size} height={size} viewBox="0 0 24 24">{paths[name]}</svg>;
     }
@@ -301,9 +320,26 @@
         );
       }
 
-      const applyDelta = (kidKey, delta, label, type) => {
+      const applyDelta = (kidKey, delta, label, type, taskId = null) => {
         const next = structuredClone(state);
         const kid = next.kids[kidKey];
+        const today = todayStr();
+
+        if (!kid.dailyTasks || kid.dailyTasks.date !== today) {
+          kid.dailyTasks = { date: today, completed: [] };
+        }
+
+        if (type === "earn") {
+          const itemKey = taskId ? taskId : `custom-${Date.now()}`;
+          kid.dailyTasks.completed.push({
+            id: itemKey,
+            taskId: taskId || null,
+            label,
+            points: delta,
+            ts: Date.now()
+          });
+        }
+
         kid.points += delta;
         kid.history.unshift({ ts: Date.now(), label, delta, type });
         kid.history = kid.history.slice(0, 40);
@@ -328,19 +364,29 @@
         setEditingName(null);
       };
 
+      // Redeem screen time FOR TOMORROW's Family Link
       const redeemScreen = (kidKey, amount) => {
         const next = structuredClone(state);
         const kid = next.kids[kidKey];
         if (amount <= 0 || amount > kid.points) return;
         const today = todayStr();
-        if (kid.dailyMinutes.date !== today) kid.dailyMinutes = { date: today, minutes: 0 };
+
+        if (!kid.tomorrowMinutes || kid.tomorrowMinutes.date !== today) {
+          kid.tomorrowMinutes = { date: today, minutes: 0 };
+        }
+
         const minutesEarned = amount * 3;
-        kid.dailyMinutes.minutes += minutesEarned;
+        kid.tomorrowMinutes.minutes += minutesEarned;
         kid.points -= amount;
-        kid.history.unshift({ ts: Date.now(), label: `Экранное время (+${minutesEarned} мин)`, delta: -amount, type: "redeem-screen" });
+        kid.history.unshift({
+          ts: Date.now(),
+          label: `Экранное время на завтра (+${minutesEarned} мин)`,
+          delta: -amount,
+          type: "redeem-screen"
+        });
         kid.history = kid.history.slice(0, 40);
         persist(next);
-        showToast(`+${minutesEarned} мин экранного времени (-${amount} б.)`);
+        showToast(`+${minutesEarned} мин на завтра в Family Link (-${amount} б.)`);
       };
 
       const redeemCash = (kidKey, amount) => {
@@ -527,7 +573,7 @@
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 <button onClick={() => setPendingRole("parent")} style={roleBtnStyle(violet)}>
                   <span style={{ display: "flex", alignItems: "center", gap: 8 }}><Icon name="lock" size={16} color={violet} />Родитель</span>
-                  <span style={{ color: muted, fontSize: 13, fontWeight: 400 }}>начислять и списывать</span>
+                  <span style={{ color: muted, fontSize: 13, fontWeight: 400 }}>начислять и проверять</span>
                 </button>
                 {Object.entries(state.kids).map(([key, kid]) => (
                   <button key={key} onClick={() => setPendingRole(key)} style={roleBtnStyle(gold)}>
@@ -615,41 +661,84 @@
 
     function KidCard({ kidKey, kid, active, onClick }) {
       const debt = kid.points < 0;
+      const today = todayStr();
+      const earnedForTomorrow = kid.tomorrowMinutes?.date === today ? kid.tomorrowMinutes.minutes : 0;
+      const totalTomorrow = 60 + earnedForTomorrow;
+
       return (
         <button onClick={onClick} style={{
           flex: 1, background: active ? surfaceAlt : surface, border: `1px solid ${active ? gold : border}`,
-          borderRadius: 14, padding: "1rem", cursor: "pointer", textAlign: "left", fontFamily: sans,
+          borderRadius: 14, padding: "0.9rem", cursor: "pointer", textAlign: "left", fontFamily: sans,
         }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
             <span style={{ fontWeight: 600, fontSize: 15, color: text, display: "flex", alignItems: "center", gap: 6 }}>
               {kid.avatar && <span style={{ fontSize: 17 }}>{kid.avatar}</span>}
               {kid.name}
             </span>
             <span style={{ fontSize: 12, color: muted }}>{kid.age} лет</span>
           </div>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-            <span style={{ fontFamily: display, fontWeight: 600, fontSize: 28, color: debt ? coral : gold }}>{kid.points}</span>
-            <span style={{ fontSize: 13, color: muted }}>баллов</span>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 6 }}>
+            <span style={{ fontFamily: display, fontWeight: 600, fontSize: 26, color: debt ? coral : gold }}>{kid.points}</span>
+            <span style={{ fontSize: 12, color: muted }}>баллов</span>
           </div>
-          {kid.pendingPayout > 0 && (
-            <div style={{ marginTop: 6, fontSize: 12, color: teal }}>{kid.pendingPayout} ₽ к выплате</div>
-          )}
-          {kid.bonusMinutes > 0 && (
-            <div style={{ marginTop: 4, fontSize: 12, color: violet }}>+{kid.bonusMinutes} мин бонус</div>
-          )}
+          <div style={{ background: bg, borderRadius: 8, padding: "0.4rem 0.6rem", fontSize: 11, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ color: muted }}>Завтра:</span>
+            <b style={{ color: teal }}>{formatHM(totalTomorrow)}</b>
+          </div>
         </button>
       );
     }
 
     function ParentView({ kids, activeKid, setActiveKid, tab, setTab, applyDelta, applyWeeklyBonus, markPaid, pins, resetPin, customAmount, setCustomAmount, customLabel, setCustomLabel, noteText, setNoteText, editingName, setEditingName, renameKid }) {
       const kid = kids[activeKid] || kids[Object.keys(kids)[0]];
+      const today = todayStr();
+      const completedToday = (kid.dailyTasks?.date === today ? kid.dailyTasks.completed : []) || [];
+
+      const earnedForTomorrow = kid.tomorrowMinutes?.date === today ? kid.tomorrowMinutes.minutes : 0;
+      const totalFamilyLinkLimit = 60 + earnedForTomorrow; // Base 60m + earned
 
       return (
         <div style={{ maxWidth: 720, margin: "0 auto", padding: "1.25rem" }}>
-          <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+          <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
             {Object.entries(kids).map(([key, k]) => (
               <KidCard key={key} kidKey={key} kid={k} active={activeKid === key} onClick={() => setActiveKid(key)} />
             ))}
+          </div>
+
+          {/* Виджет для Family Link: что выставить на завтра перед сном */}
+          <div style={{
+            background: "linear-gradient(135deg, #232952 0%, #2b2254 100%)",
+            border: `1.5px solid ${violet}`, borderRadius: 16, padding: "1.1rem 1.25rem", marginBottom: 18,
+            boxShadow: "0 6px 20px rgba(177,140,255,0.12)"
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Icon name="phone" size={20} color={violet} />
+                <span style={{ fontWeight: 600, fontSize: 15, color: text }}>
+                  Family Link на завтра ({tomorrowStr()})
+                </span>
+              </div>
+              <span style={{ fontSize: 11, background: violet + "2a", color: violet, padding: "2px 8px", borderRadius: 6, fontWeight: 600 }}>
+                Перед сном
+              </span>
+            </div>
+
+            <div style={{ fontSize: 13, color: muted, marginBottom: 12 }}>
+              Лимит времени для <b>{kid.name}</b>, который нужно выставить в приложении Family Link:
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: bg, borderRadius: 12, padding: "0.8rem 1rem" }}>
+              <div>
+                <div style={{ fontSize: 12, color: muted, marginBottom: 2 }}>Базовый 1 ч (60 мин) + обмен (+{earnedForTomorrow} мин)</div>
+                <div style={{ fontSize: 11, color: teal }}>Всё готово к установке лимита</div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontFamily: display, fontWeight: 600, fontSize: 24, color: teal, lineHeight: 1.1 }}>
+                  {formatHM(totalFamilyLinkLimit)}
+                </div>
+                <div style={{ fontSize: 11, color: muted, marginTop: 2 }}>{totalFamilyLinkLimit} минут</div>
+              </div>
+            </div>
           </div>
 
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
@@ -675,7 +764,7 @@
           <SpendSummary kid={kid} />
 
           <input
-            placeholder="Комментарий (необязательно) — например, что именно случилось"
+            placeholder="Комментарий (необязательно) — например, за что именно"
             value={noteText}
             onChange={(e) => setNoteText(e.target.value)}
             style={inputStyle({ width: "100%", boxSizing: "border-box", marginBottom: 10 })}
@@ -683,24 +772,45 @@
 
           {tab === "earn" ? (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px,1fr))", gap: 10, marginBottom: 16 }}>
-              {TASKS.map((t) => (
-                <ActionBtn key={t.id} label={t.label} points={t.points} accent={t.required ? violet : gold}
-                  onClick={() => { applyDelta(activeKid, t.points, noteText.trim() ? `${t.label} — ${noteText.trim()}` : t.label, "earn"); setNoteText(""); }} />
-              ))}
+              {TASKS.map((t) => {
+                const isDone = completedToday.some((c) => c.taskId === t.id);
+                return (
+                  <ActionBtn
+                    key={t.id}
+                    label={t.label}
+                    points={t.points}
+                    accent={t.required ? violet : gold}
+                    badge={t.required ? "Обязательно" : null}
+                    isDone={isDone}
+                    onClick={() => {
+                      applyDelta(activeKid, t.points, noteText.trim() ? `${t.label} — ${noteText.trim()}` : t.label, "earn", t.id);
+                      setNoteText("");
+                    }}
+                  />
+                );
+              })}
             </div>
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px,1fr))", gap: 10, marginBottom: 16 }}>
               {PENALTIES.map((t) => (
-                <ActionBtn key={t.id} label={t.label} points={t.points} accent={coral}
-                  onClick={() => { applyDelta(activeKid, t.points, noteText.trim() ? `${t.label} — ${noteText.trim()}` : t.label, "penalty"); setNoteText(""); }} />
+                <ActionBtn
+                  key={t.id}
+                  label={t.label}
+                  points={t.points}
+                  accent={coral}
+                  onClick={() => {
+                    applyDelta(activeKid, t.points, noteText.trim() ? `${t.label} — ${noteText.trim()}` : t.label, "penalty", null);
+                    setNoteText("");
+                  }}
+                />
               ))}
             </div>
           )}
 
           <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: 14, padding: "1rem", marginBottom: 16 }}>
-            <div style={{ fontSize: 13, color: muted, marginBottom: 10 }}>Другое количество баллов</div>
+            <div style={{ fontSize: 13, color: muted, marginBottom: 10 }}>Другое количество баллов (появится в доп. делах у ребёнка)</div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <input placeholder="За что" value={customLabel} onChange={(e) => setCustomLabel(e.target.value)}
+              <input placeholder="Что сделал (например: помыл посуду)" value={customLabel} onChange={(e) => setCustomLabel(e.target.value)}
                 style={inputStyle({ flex: "1 1 140px" })} />
               <input placeholder="Баллы (+/-)" type="number" value={customAmount} onChange={(e) => setCustomAmount(e.target.value)}
                 style={inputStyle({ width: 110 })} />
@@ -708,7 +818,7 @@
                 onClick={() => {
                   const n = parseInt(customAmount, 10);
                   if (!n || Number.isNaN(n)) return;
-                  applyDelta(activeKid, n, customLabel.trim() || "Другое", n > 0 ? "earn" : "penalty");
+                  applyDelta(activeKid, n, customLabel.trim() || "Дополнительное дело", n > 0 ? "earn" : "penalty", null);
                   setCustomAmount("");
                   setCustomLabel("");
                 }}
@@ -756,20 +866,20 @@
 
     function SpendSummary({ kid }) {
       const today = todayStr();
-      const screenToday = kid.dailyMinutes?.date === today ? kid.dailyMinutes.minutes : 0;
+      const screenTomorrow = kid.tomorrowMinutes?.date === today ? kid.tomorrowMinutes.minutes : 0;
       const cashTotal = kid.totalCashRedeemed || 0;
       const hasGoalSavings = kid.goals && kid.goals.some((g) => g.saved > 0);
 
-      if (!screenToday && !cashTotal && !hasGoalSavings) return null;
+      if (!screenTomorrow && !cashTotal && !hasGoalSavings) return null;
 
       return (
         <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: 14, padding: "1rem", marginBottom: 16 }}>
           <div style={{ fontSize: 13, color: muted, marginBottom: 10 }}>На что потрачено</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {screenToday > 0 && (
+            {screenTomorrow > 0 && (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 14 }}>
-                <span style={{ display: "flex", alignItems: "center", gap: 8 }}><Icon name="screen" size={16} color={violet} />Экранное время сегодня</span>
-                <b style={{ color: violet }}>{screenToday} мин</b>
+                <span style={{ display: "flex", alignItems: "center", gap: 8 }}><Icon name="phone" size={16} color={violet} />Заработано на завтра (Family Link)</span>
+                <b style={{ color: violet }}>+{screenTomorrow} мин</b>
               </div>
             )}
             {cashTotal > 0 && (
@@ -799,16 +909,30 @@
       );
     }
 
-    function ActionBtn({ label, points, accent, onClick }) {
+    function ActionBtn({ label, points, accent, badge, isDone, onClick }) {
       return (
         <button onClick={onClick} style={{
-          background: surface, border: `1px solid ${border}`, borderRadius: 12, padding: "0.8rem",
+          background: surface, border: `1px solid ${isDone ? teal : border}`, borderRadius: 12, padding: "0.8rem",
           cursor: "pointer", textAlign: "left", fontFamily: sans, display: "flex", flexDirection: "column", gap: 6,
+          position: "relative",
         }}>
+          {badge && (
+            <span style={{
+              fontSize: 10, fontWeight: 600, color: violet, background: violet + "22",
+              padding: "2px 6px", borderRadius: 4, alignSelf: "flex-start"
+            }}>{badge}</span>
+          )}
           <span style={{ fontSize: 13, color: text, fontWeight: 500 }}>{label}</span>
-          <span style={{ fontFamily: display, fontWeight: 600, fontSize: 16, color: accent }}>
-            {points > 0 ? "+" : ""}{points}
-          </span>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+            <span style={{ fontFamily: display, fontWeight: 600, fontSize: 16, color: accent }}>
+              {points > 0 ? "+" : ""}{points}
+            </span>
+            {isDone && (
+              <span style={{ color: teal, display: "flex", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 600 }}>
+                <Icon name="check" size={14} color={teal} /> сделано
+              </span>
+            )}
+          </div>
         </button>
       );
     }
@@ -855,9 +979,23 @@
     function KidView({ kidKey, kid, redeemScreen, redeemCash, goalName, setGoalName, goalTarget, setGoalTarget, createGoal, fundGoal, deleteGoal, useBonusMinutes }) {
       if (!kid) return null;
       const debt = kid.points < 0;
-      const canRedeem = kid.points > 0;
       const today = todayStr();
-      const earnedToday = kid.dailyMinutes?.date === today ? kid.dailyMinutes.minutes : 0;
+      const completedToday = (kid.dailyTasks?.date === today ? kid.dailyTasks.completed : []) || [];
+
+      const hwDone = completedToday.some((c) => c.taskId === "hw");
+      const choresDone = completedToday.some((c) => c.taskId === "chores");
+      const requiredComplete = hwDone && choresDone;
+
+      // Extra completed tasks that are not required
+      const extraCompleted = completedToday.filter((c) => c.taskId !== "hw" && c.taskId !== "chores");
+
+      // Tomorrow screen time info
+      const earnedForTomorrow = kid.tomorrowMinutes?.date === today ? kid.tomorrowMinutes.minutes : 0;
+      const totalTomorrow = 60 + earnedForTomorrow; // Base 60m + earned
+
+      // Can redeem screen time only if points > 0 AND required tasks are finished
+      const canRedeemScreen = kid.points > 0 && requiredComplete;
+      const canRedeemMoneyAndGoals = kid.points > 0;
 
       return (
         <div style={{ maxWidth: 560, margin: "0 auto", padding: "1.25rem" }}>
@@ -866,7 +1004,7 @@
             <div style={{ fontFamily: display, fontWeight: 600, fontSize: 56, color: debt ? coral : gold, lineHeight: 1 }}>
               {kid.points}
             </div>
-            <div style={{ fontSize: 14, color: muted, marginTop: 4 }}>баллов</div>
+            <div style={{ fontSize: 14, color: muted, marginTop: 4 }}>баллов на счёте</div>
           </div>
 
           {debt && (
@@ -878,16 +1016,118 @@
             </div>
           )}
 
+          {/* Карточка лимита Family Link на завтра */}
+          <div style={{
+            background: "linear-gradient(135deg, #232952 0%, #2b2254 100%)",
+            border: `1.5px solid ${violet}`, borderRadius: 16, padding: "1rem 1.2rem", marginBottom: 16,
+            boxShadow: "0 4px 16px rgba(177,140,255,0.1)"
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <span style={{ fontSize: 14, fontWeight: 600, color: text, display: "flex", alignItems: "center", gap: 6 }}>
+                <Icon name="phone" size={17} color={violet} /> Твой Family Link на завтра
+              </span>
+              <span style={{ fontSize: 11, color: violet, fontWeight: 600 }}>{tomorrowStr()}</span>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, fontSize: 13 }}>
+              <span style={{ color: muted }}>Базовый 1 час:</span>
+              <span>60 мин</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, fontSize: 13 }}>
+              <span style={{ color: muted }}>Заработано сегодня:</span>
+              <b style={{ color: violet }}>+{earnedForTomorrow} мин</b>
+            </div>
+
+            <div style={{ borderTop: `1px solid ${border}`, paddingTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: text }}>Родители выставят в таймер:</span>
+              <b style={{ fontSize: 18, color: teal, fontFamily: display }}>{formatHM(totalTomorrow)}</b>
+            </div>
+          </div>
+
+          {/* Обязательные дела на сегодня */}
+          <div style={{ background: surface, border: `1px solid ${requiredComplete ? teal : border}`, borderRadius: 14, padding: "1rem", marginBottom: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <span style={{ fontWeight: 600, fontSize: 14, color: text }}>Обязательные дела на сегодня</span>
+              {requiredComplete ? (
+                <span style={{ fontSize: 12, color: teal, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
+                  <Icon name="check" size={14} color={teal} /> Выполнено
+                </span>
+              ) : (
+                <span style={{ fontSize: 12, color: coral, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
+                  <Icon name="lock" size={13} color={coral} /> Нужно закрыть
+                </span>
+              )}
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                background: bg, borderRadius: 10, padding: "0.6rem 0.8rem",
+                border: `1px solid ${hwDone ? teal : border}`
+              }}>
+                <span style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{
+                    width: 20, height: 20, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center",
+                    background: hwDone ? teal : "rgba(255,255,255,0.06)", color: hwDone ? "#171B34" : muted
+                  }}>
+                    {hwDone ? <Icon name="check" size={14} color="#171B34" /> : "1"}
+                  </span>
+                  Домашка сделана (+30 б. = 90 мин)
+                </span>
+                <span style={{ fontSize: 12, color: hwDone ? teal : muted, fontWeight: 600 }}>
+                  {hwDone ? "Сдано ✓" : "Ожидает"}
+                </span>
+              </div>
+
+              <div style={{
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                background: bg, borderRadius: 10, padding: "0.6rem 0.8rem",
+                border: `1px solid ${choresDone ? teal : border}`
+              }}>
+                <span style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{
+                    width: 20, height: 20, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center",
+                    background: choresDone ? teal : "rgba(255,255,255,0.06)", color: choresDone ? "#171B34" : muted
+                  }}>
+                    {choresDone ? <Icon name="check" size={14} color="#171B34" /> : "2"}
+                  </span>
+                  Дела по дому (+15 б. = 45 мин)
+                </span>
+                <span style={{ fontSize: 12, color: choresDone ? teal : muted, fontWeight: 600 }}>
+                  {choresDone ? "Сдано ✓" : "Ожидает"}
+                </span>
+              </div>
+            </div>
+
+            {!requiredComplete && (
+              <div style={{ fontSize: 12, color: muted, marginTop: 10 }}>
+                Обмен баллов на экранное время на завтра откроется, когда родители подтвердят оба обязательных дела.
+              </div>
+            )}
+          </div>
+
+          {/* Дополнительные сделанные дела за сегодня */}
+          {extraCompleted.length > 0 && (
+            <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: 14, padding: "1rem", marginBottom: 16 }}>
+              <div style={{ fontSize: 13, color: muted, marginBottom: 8 }}>Дополнительные дела за сегодня</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {extraCompleted.map((c, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: bg, borderRadius: 8, padding: "0.5rem 0.75rem", fontSize: 13 }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <Icon name="check" size={14} color={teal} />
+                      {c.label}
+                    </span>
+                    <b style={{ color: gold }}>+{c.points} б.</b>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {kid.bonusMinutes > 0 && (
             <div style={{ background: violet + "1a", border: `1px solid ${violet}`, borderRadius: 12, padding: "0.9rem 1rem", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ fontSize: 13, color: text }}>Бонус за идеальную неделю: <b style={{ color: violet }}>+{kid.bonusMinutes} мин</b> на выходные</div>
               <button onClick={() => useBonusMinutes(kidKey)} style={primaryBtnStyle(violet)}>Использовал</button>
-            </div>
-          )}
-
-          {earnedToday > 0 && (
-            <div style={{ fontSize: 13, color: muted, marginBottom: 16, textAlign: "center" }}>
-              Сегодня уже переведено в экранное время: {earnedToday} мин
             </div>
           )}
 
@@ -898,64 +1138,96 @@
             </div>
           )}
 
-          {canRedeem ? (
-            <>
-              <div style={{ fontSize: 13, color: muted, marginBottom: 10 }}>На что потратить баллы</div>
-              <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: 14, padding: "1rem", marginBottom: 12 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                  <Icon name="screen" size={18} color={violet} />
-                  <span style={{ fontWeight: 600, fontSize: 14 }}>Экранное время</span>
-                  <span style={{ fontSize: 12, color: muted, marginLeft: "auto" }}>1 балл = 3 мин</span>
-                </div>
-                <RedeemRow max={kid.points} onRedeem={(n) => redeemScreen(kidKey, n)} accent={violet} unit="б." presets={[10, 20, 30, 60]} />
-              </div>
+          {/* Обмен на экранное время НА ЗАВТРА */}
+          <div style={{ fontSize: 13, color: muted, marginBottom: 10 }}>На что потратить баллы</div>
 
-              <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: 14, padding: "1rem", marginBottom: 12 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                  <Icon name="money" size={18} color={teal} />
-                  <span style={{ fontWeight: 600, fontSize: 14 }}>Деньги</span>
-                  <span style={{ fontSize: 12, color: muted, marginLeft: "auto" }}>1 балл = 1 ₽</span>
-                </div>
-                <RedeemRow max={kid.points} onRedeem={(n) => redeemCash(kidKey, n)} accent={teal} unit="₽" />
-              </div>
+          <div style={{
+            background: surface, border: `1px solid ${canRedeemScreen ? border : "rgba(255,107,107,0.3)"}`,
+            borderRadius: 14, padding: "1rem", marginBottom: 12, opacity: canRedeemScreen ? 1 : 0.85
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <Icon name="phone" size={18} color={violet} />
+              <span style={{ fontWeight: 600, fontSize: 14 }}>Экранное время на завтра</span>
+              <span style={{ fontSize: 12, color: muted, marginLeft: "auto" }}>1 балл = 3 мин</span>
+            </div>
 
-              <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: 14, padding: "1rem", marginBottom: 12 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                  <Icon name="target" size={18} color={gold} />
-                  <span style={{ fontWeight: 600, fontSize: 14 }}>Копилка на цель</span>
-                </div>
-                {kid.goals && kid.goals.map((g) => (
-                  <div key={g.id} style={{ marginBottom: 12 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, marginBottom: 4 }}>
-                      <span>{g.name}</span>
-                      <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ color: muted }}>{g.saved} / {g.target} ₽</span>
-                        <button onClick={() => deleteGoal(kidKey, g.id)} title="Удалить цель" style={{
-                          background: "transparent", border: "none", color: muted, cursor: "pointer", fontSize: 15, lineHeight: 1, padding: 2,
-                        }}>×</button>
-                      </span>
-                    </div>
-                    <div style={{ height: 6, background: bg, borderRadius: 4, overflow: "hidden", marginBottom: 8 }}>
-                      <div style={{ height: "100%", width: `${Math.min(100, (g.saved / g.target) * 100)}%`, background: gold }} />
-                    </div>
-                    <RedeemRow max={kid.points} onRedeem={(n) => fundGoal(kidKey, g.id, n)} accent={gold} unit="₽" compact />
+            {canRedeemScreen ? (
+              <RedeemRow
+                max={kid.points}
+                onRedeem={(n) => redeemScreen(kidKey, n)}
+                accent={violet}
+                unit="б."
+                btnLabel="В лимит на завтра"
+                presets={[10, 20, 30, 60]}
+              />
+            ) : (
+              <div style={{
+                background: bg, border: `1px dashed ${coral}`, borderRadius: 10, padding: "0.8rem",
+                display: "flex", alignItems: "center", gap: 10, color: text, fontSize: 13
+              }}>
+                <Icon name="lock" size={20} color={coral} />
+                <div>
+                  <div style={{ fontWeight: 600, color: coral }}>Обмен на завтра заблокирован</div>
+                  <div style={{ fontSize: 12, color: muted, marginTop: 2 }}>
+                    {!requiredComplete
+                      ? "Сначала нужно закрыть обязательные дела (домашка и дела по дому)."
+                      : "Недостаточно баллов на счёте."}
                   </div>
-                ))}
-                <div style={{ display: "flex", gap: 8, marginTop: (kid.goals && kid.goals.length) ? 4 : 0, flexWrap: "wrap" }}>
-                  <input placeholder="Новая цель" value={goalName} onChange={(e) => setGoalName(e.target.value)} style={inputStyle({ flex: "1 1 120px" })} />
-                  <input placeholder="Сумма ₽" type="number" value={goalTarget} onChange={(e) => setGoalTarget(e.target.value)} style={inputStyle({ width: 100 })} />
-                  <button onClick={() => createGoal(kidKey, goalName.trim(), parseInt(goalTarget, 10))} style={primaryBtnStyle(gold)}>
-                    <Icon name="plus" size={14} color="#171B34" />
-                  </button>
                 </div>
               </div>
-            </>
-          ) : (
-            !debt && (
-              <div style={{ textAlign: "center", color: muted, fontSize: 13, padding: "1.5rem 0" }}>
-                Пока баллов нет — выполни задание, и родители начислят тебе баллы.
+            )}
+          </div>
+
+          {/* Обмен на деньги */}
+          {canRedeemMoneyAndGoals && (
+            <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: 14, padding: "1rem", marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                <Icon name="money" size={18} color={teal} />
+                <span style={{ fontWeight: 600, fontSize: 14 }}>Деньги</span>
+                <span style={{ fontSize: 12, color: muted, marginLeft: "auto" }}>1 балл = 1 ₽</span>
               </div>
-            )
+              <RedeemRow max={kid.points} onRedeem={(n) => redeemCash(kidKey, n)} accent={teal} unit="₽" />
+            </div>
+          )}
+
+          {/* Копилка на цель */}
+          {canRedeemMoneyAndGoals && (
+            <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: 14, padding: "1rem", marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                <Icon name="target" size={18} color={gold} />
+                <span style={{ fontWeight: 600, fontSize: 14 }}>Копилка на цель</span>
+              </div>
+              {kid.goals && kid.goals.map((g) => (
+                <div key={g.id} style={{ marginBottom: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, marginBottom: 4 }}>
+                    <span>{g.name}</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ color: muted }}>{g.saved} / {g.target} ₽</span>
+                      <button onClick={() => deleteGoal(kidKey, g.id)} title="Удалить цель" style={{
+                        background: "transparent", border: "none", color: muted, cursor: "pointer", fontSize: 15, lineHeight: 1, padding: 2,
+                      }}>×</button>
+                    </span>
+                  </div>
+                  <div style={{ height: 6, background: bg, borderRadius: 4, overflow: "hidden", marginBottom: 8 }}>
+                    <div style={{ height: "100%", width: `${Math.min(100, (g.saved / g.target) * 100)}%`, background: gold }} />
+                  </div>
+                  <RedeemRow max={kid.points} onRedeem={(n) => fundGoal(kidKey, g.id, n)} accent={gold} unit="₽" compact />
+                </div>
+              ))}
+              <div style={{ display: "flex", gap: 8, marginTop: (kid.goals && kid.goals.length) ? 4 : 0, flexWrap: "wrap" }}>
+                <input placeholder="Новая цель" value={goalName} onChange={(e) => setGoalName(e.target.value)} style={inputStyle({ flex: "1 1 120px" })} />
+                <input placeholder="Сумма ₽" type="number" value={goalTarget} onChange={(e) => setGoalTarget(e.target.value)} style={inputStyle({ width: 100 })} />
+                <button onClick={() => createGoal(kidKey, goalName.trim(), parseInt(goalTarget, 10))} style={primaryBtnStyle(gold)}>
+                  <Icon name="plus" size={14} color="#171B34" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {!debt && !canRedeemMoneyAndGoals && (
+            <div style={{ textAlign: "center", color: muted, fontSize: 13, padding: "1.5rem 0" }}>
+              Пока баллов нет — выполни задание, и родители начислят тебе баллы.
+            </div>
           )}
 
           <History history={kid.history} />
@@ -963,7 +1235,7 @@
       );
     }
 
-    function RedeemRow({ max, onRedeem, accent, unit, compact, presets: customPresets }) {
+    function RedeemRow({ max, onRedeem, accent, unit, compact, presets: customPresets, btnLabel = "Обменять" }) {
       const [val, setVal] = useState("");
       const presets = compact ? [] : (customPresets || [15, 30, 60]).filter((p) => p <= max);
       return (
@@ -989,7 +1261,7 @@
                 setVal("");
               }}
               style={primaryBtnStyle(accent)}
-            >Обменять</button>
+            >{btnLabel}</button>
           </div>
         </div>
       );
