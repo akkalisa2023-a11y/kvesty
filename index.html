@@ -92,12 +92,18 @@
       { id: "chores", label: "Дела по дому", points: 15, required: true },
       { id: "study", label: "Доп. занятие / чтение", points: 15 },
       { id: "sport", label: "Спорт / тренировка", points: 20 },
+      { id: "club", label: "Кружок", points: 20 },
+      { id: "pyaterochka", label: "Пятёрочка выручает", points: 30 },
       { id: "behavior", label: "Хорошее поведение", points: 15 },
       { id: "extra", label: "Помощь сверх нормы", points: 10 },
+      { id: "olympiad", label: "Олимпиада", points: 100 },
+      { id: "gto", label: "ГТО", points: 100 },
     ];
 
     const PENALTIES = [
       { id: "grade", label: "Плохая оценка", points: -20 },
+      { id: "bad_grades_streak", label: "Серия плохих оценок", points: -100 },
+      { id: "mom_turn_on", label: "«Мам, включи»", points: -10 },
       { id: "missed", label: "Не сделано обязательное", points: -15 },
       { id: "note", label: "Замечание учителя", points: -25 },
       { id: "conflict", label: "Конфликт / грубость", points: -20 },
@@ -364,7 +370,7 @@
         setEditingName(null);
       };
 
-      // Redeem screen time FOR TOMORROW's Family Link
+      // Redeem screen time FOR TOMORROW's Family Link (max 7 hours = 420 mins)
       const redeemScreen = (kidKey, amount) => {
         const next = structuredClone(state);
         const kid = next.kids[kidKey];
@@ -372,7 +378,17 @@
         const today = todayStr();
 
         if (!kid.tomorrowMinutes || kid.tomorrowMinutes.date !== today) {
-          kid.tomorrowMinutes = { date: today, minutes: 0 };
+          kid.tomorrowMinutes = { date: today, minutes: 0, bonusApplied: false };
+        }
+
+        const bonusM = kid.tomorrowMinutes.bonusApplied ? 60 : 0;
+        const currentTotal = 60 + kid.tomorrowMinutes.minutes + bonusM;
+        const maxAddMinutes = Math.max(0, 420 - currentTotal);
+        const maxAddPoints = Math.floor(maxAddMinutes / 3);
+
+        if (amount > maxAddPoints) {
+          showToast(`Лимит 7 часов! Можно обменять максимум ${maxAddPoints} б.`);
+          return;
         }
 
         const minutesEarned = amount * 3;
@@ -448,6 +464,36 @@
         kid.history = kid.history.slice(0, 40);
         persist(next);
         showToast(`+${amount} ₽ в «${goal.name}»`);
+      };
+
+      const applyBonusToTomorrow = (kidKey) => {
+        const next = structuredClone(state);
+        const kid = next.kids[kidKey];
+        if (kid.bonusMinutes <= 0) return;
+
+        const today = todayStr();
+        if (!kid.tomorrowMinutes || kid.tomorrowMinutes.date !== today) {
+          kid.tomorrowMinutes = { date: today, minutes: 0, bonusApplied: false };
+        }
+
+        const currentTotal = 60 + kid.tomorrowMinutes.minutes + (kid.tomorrowMinutes.bonusApplied ? 60 : 0);
+        if (currentTotal + 60 > 420) {
+          showToast(`Превышен лимит 7 часов! Нельзя добавить бонусный час.`);
+          return;
+        }
+
+        kid.tomorrowMinutes.bonusApplied = true;
+        kid.bonusMinutes = 0;
+        kid.history.unshift({
+          ts: Date.now(),
+          label: `Бонусный час добавлен в лимит на завтра (+60 мин)`,
+          delta: 0,
+          type: "bonus-applied",
+          minutes: 60
+        });
+        kid.history = kid.history.slice(0, 40);
+        persist(next);
+        showToast(`+60 мин бонуса добавлено к завтрашнему лимиту!`);
       };
 
       const useBonusMinutes = (kidKey) => {
@@ -663,7 +709,8 @@
       const debt = kid.points < 0;
       const today = todayStr();
       const earnedForTomorrow = kid.tomorrowMinutes?.date === today ? kid.tomorrowMinutes.minutes : 0;
-      const totalTomorrow = 60 + earnedForTomorrow;
+      const bonusForTomorrow = (kid.tomorrowMinutes?.date === today && kid.tomorrowMinutes.bonusApplied) ? 60 : 0;
+      const totalTomorrow = Math.min(420, 60 + earnedForTomorrow + bonusForTomorrow);
 
       return (
         <button onClick={onClick} style={{
@@ -695,7 +742,8 @@
       const completedToday = (kid.dailyTasks?.date === today ? kid.dailyTasks.completed : []) || [];
 
       const earnedForTomorrow = kid.tomorrowMinutes?.date === today ? kid.tomorrowMinutes.minutes : 0;
-      const totalFamilyLinkLimit = 60 + earnedForTomorrow; // Base 60m + earned
+      const bonusForTomorrow = (kid.tomorrowMinutes?.date === today && kid.tomorrowMinutes.bonusApplied) ? 60 : 0;
+      const totalFamilyLinkLimit = Math.min(420, 60 + earnedForTomorrow + bonusForTomorrow);
 
       return (
         <div style={{ maxWidth: 720, margin: "0 auto", padding: "1.25rem" }}>
@@ -991,7 +1039,8 @@
 
       // Tomorrow screen time info
       const earnedForTomorrow = kid.tomorrowMinutes?.date === today ? kid.tomorrowMinutes.minutes : 0;
-      const totalTomorrow = 60 + earnedForTomorrow; // Base 60m + earned
+      const bonusForTomorrow = (kid.tomorrowMinutes?.date === today && kid.tomorrowMinutes.bonusApplied) ? 60 : 0;
+      const totalTomorrow = Math.min(420, 60 + earnedForTomorrow + bonusForTomorrow); // Base 60m + earned
 
       // Can redeem screen time only if points > 0 AND required tasks are finished
       const canRedeemScreen = kid.points > 0 && requiredComplete;
@@ -1142,24 +1191,48 @@
           <div style={{ fontSize: 13, color: muted, marginBottom: 10 }}>На что потратить баллы</div>
 
           <div style={{
-            background: surface, border: `1px solid ${canRedeemScreen ? border : "rgba(255,107,107,0.3)"}`,
-            borderRadius: 14, padding: "1rem", marginBottom: 12, opacity: canRedeemScreen ? 1 : 0.85
+            background: surface, border: `1px solid ${canRedeemScreen && remainingMinutes > 0 ? border : "rgba(255,107,107,0.3)"}`,
+            borderRadius: 14, padding: "1rem", marginBottom: 12, opacity: (canRedeemScreen && remainingMinutes > 0) ? 1 : 0.85
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
               <Icon name="phone" size={18} color={violet} />
               <span style={{ fontWeight: 600, fontSize: 14 }}>Экранное время на завтра</span>
-              <span style={{ fontSize: 12, color: muted, marginLeft: "auto" }}>1 балл = 3 мин</span>
+              <span style={{ fontSize: 12, color: muted, marginLeft: "auto" }}>1 б. = 3 мин (макс. 7 ч)</span>
             </div>
 
-            {canRedeemScreen ? (
-              <RedeemRow
-                max={kid.points}
-                onRedeem={(n) => redeemScreen(kidKey, n)}
-                accent={violet}
-                unit="б."
-                btnLabel="В лимит на завтра"
-                presets={[10, 20, 30, 60]}
-              />
+            {remainingMinutes <= 0 ? (
+              <div style={{
+                background: bg, border: `1px dashed ${teal}`, borderRadius: 10, padding: "0.8rem",
+                display: "flex", alignItems: "center", gap: 10, color: text, fontSize: 13
+              }}>
+                <Icon name="check" size={20} color={teal} />
+                <div>
+                  <div style={{ fontWeight: 600, color: teal }}>Максимум на завтра набран!</div>
+                  <div style={{ fontSize: 12, color: muted, marginTop: 2 }}>
+                    Лимит 7 часов (420 мин) уже заполнен. Больше добавить на завтра нельзя.
+                  </div>
+                </div>
+              </div>
+            ) : canRedeemScreen ? (
+              <div>
+                <div style={{ fontSize: 12, color: muted, marginBottom: 8 }}>
+                  До лимита 7 часов осталось <b>{formatHM(remainingMinutes)}</b>. Можно обменять максимум <b>{Math.min(kid.points, maxAllowedPoints)} б.</b>
+                </div>
+                <RedeemRow
+                  max={Math.min(kid.points, maxAllowedPoints)}
+                  onRedeem={(n) => {
+                    if (n > maxAllowedPoints) {
+                      showToast(`Можно обменять максимум ${maxAllowedPoints} б., чтобы не превысить 7 часов!`);
+                      return;
+                    }
+                    redeemScreen(kidKey, n);
+                  }}
+                  accent={violet}
+                  unit="б."
+                  btnLabel="В лимит на завтра"
+                  presets={[20, 40, 60, 80].filter((p) => p <= Math.min(kid.points, maxAllowedPoints))}
+                />
+              </div>
             ) : (
               <div style={{
                 background: bg, border: `1px dashed ${coral}`, borderRadius: 10, padding: "0.8rem",
