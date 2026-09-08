@@ -1041,6 +1041,7 @@
       const earnedForTomorrow = kid.tomorrowMinutes?.date === today ? kid.tomorrowMinutes.minutes : 0;
       const bonusForTomorrow = (kid.tomorrowMinutes?.date === today && kid.tomorrowMinutes.bonusApplied) ? 60 : 0;
       const totalTomorrow = Math.min(420, 60 + earnedForTomorrow + bonusForTomorrow); // Base 60m + earned
+      const remainingMinutes = 420 - totalTomorrow;
 
       // Can redeem screen time only if points > 0 AND required tasks are finished
       const canRedeemScreen = kid.points > 0 && requiredComplete;
