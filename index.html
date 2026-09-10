@@ -39,15 +39,22 @@
 
     // Мост для сохранения состояния в общую базу Firestore и на локальное устройство
     window.familyStorage = {
-      async getShared(key) {
-        try {
-          const snap = await getDoc(doc(db, "app_state", key));
-          if (snap.exists()) return snap.data().value;
-        } catch (e) {
-          console.error("Fetch error:", e);
+     async getShared(key) {
+      try {
+        const fetchPromise = getDoc(doc(db, "app_state", key));
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 4000));
+        const snap = await Promise.race([fetchPromise, timeoutPromise]);
+        if (snap.exists()) {
+          const val = snap.data().value;
+          try { localStorage.setItem("cache_" + key, val); } catch(e) {}
+          return val;
         }
-        return null;
-      },
+      } catch (e) {
+        console.warn("Fetch fallback for", key, e);
+        try { return localStorage.getItem("cache_" + key); } catch(err) {}
+      }
+      return null;
+    },
       async setShared(key, value) {
         try {
           await setDoc(doc(db, "app_state", key), { value });
@@ -135,9 +142,13 @@
       };
     }
 
-    function todayStr() {
-      return new Date().toISOString().slice(0, 10);
-    }
+function todayStr() {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return ${year}-${month}-${day};
+}
 
     function tomorrowStr() {
       const d = new Date();
